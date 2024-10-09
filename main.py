@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 from sklearn import *
-#import seaborn as sns
+import seaborn as sns 
 
 
 #Import dataset
@@ -34,6 +34,13 @@ print("\nNumber of duplicated values: ",dupCount)
 #Data Preprocessing
 #Options: Aggregation, Sampling, Dimensionality Reduction, Feature subset selection, Feature creation, Discretization, Binarization, and Variable Tranformation
 #Do: Sampling and Feature Subset Selection
+df.drop("Neurological Assessments", axis=1,inplace=True)
+df.drop("Genetic Testing", axis=1,inplace=True)
+base = ['Insulin Levels','Family History','Early Onset Symptoms','Genetic Markers','Steroid Use History']
+age_df = df[[feature for feature in base + ['Age']]]
+print(age_df)
+diet_health_df = df[[feature for feature in base + ['Physical Activity','Dietary Habits']]]
+print(diet_health_df)
 features = df.columns
 print(features)
 print(len(features))
