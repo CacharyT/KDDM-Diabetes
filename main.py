@@ -54,19 +54,14 @@ upper_bound_pulmonary = q3_pulmonary + 1.0 * iqr_pulmonary #decreased threshold
 
 df = df[(df['Waist Circumference'] > lower_bound_waist) & (df['Waist Circumference'] < upper_bound_waist)]
 df = df[(df['Pulmonary Function'] > lower_bound_pulmonary) & (df['Pulmonary Function'] < upper_bound_pulmonary)]
-
-
-plt.boxplot(df['Waist Circumference'])
-plt.title('Waist Circumference - Removed Outliers')
-plt.xlabel("Data")
-plt.ylabel("Values")
-plt.show()
-
-plt.boxplot(df['Pulmonary Function'])
-plt.title('Pulmonary Function - Removed Outliers')
-plt.xlabel("Data")
-plt.ylabel("Values")
-plt.show()
+def plotOutliers(dfName):
+    plt.boxplot(df[dfName])
+    plt.title(f'{dfName} - Removed Outliers')
+    plt.xlabel("Data")
+    plt.ylabel("Values")
+    plt.show()
+plotOutliers('Waist Circumference')
+plotOutliers('Pulmonary Function')
 
 
 
