@@ -34,12 +34,12 @@ print("\nNumber of duplicated values: ", dupCount)
 #Boxplotting to find any noise data and outliers (Numeric Features only)
 numeric_features = df.select_dtypes(include = np.number).columns.tolist()
 
-for column in numeric_features:
-    plt.boxplot(df[column].tolist())
-    plt.title(column)
-    plt.xlabel("Data")
-    plt.ylabel("Values")
-    plt.show()
+# for column in numeric_features:
+#     plt.boxplot(df[column].tolist())
+#     plt.title(column)
+#     plt.xlabel("Data")
+#     plt.ylabel("Values")
+#     plt.show()
 
 #Removing outliers (using IQR)
 q1_waist, q3_waist = np.percentile(df['Waist Circumference'], [25,75])
@@ -62,8 +62,8 @@ def plotOutliers(dfName):
     plt.ylabel("Values")
     plt.show()
     
-plotOutliers('Waist Circumference')
-plotOutliers('Pulmonary Function')
+# plotOutliers('Waist Circumference')
+# plotOutliers('Pulmonary Function')
 
 
 
@@ -79,24 +79,24 @@ print("New population size: ", len(sampled_df))
 #Bootstrapping to determine represenativity of original sample (only numerics)
 sampling_df = df.select_dtypes(include = np.number).columns.tolist()
 
-sampled_means = []
-for column in sampling_df:  #Finds means for the original sample
-    sampled_means.append(sampled_df[column].mean())
+# sampled_means = []
+# for column in sampling_df:  #Finds means for the original sample
+#     sampled_means.append(sampled_df[column].mean())
 
 
-def bootstrap_mean(df, columnName): #Bootstrapping function for means
-    bootstrapped = df.sample(frac = 0.10, replace = True)
-    return  bootstrapped[columnName].mean()
+# def bootstrap_mean(df, columnName): #Bootstrapping function for means
+#     bootstrapped = df.sample(frac = 0.10, replace = True)
+#     return  bootstrapped[columnName].mean()
 
-bootstrapped_means = []
+# bootstrapped_means = []
 
-for column in sampling_df:  #Finds means for each bootstrapped sample
-    current_means = [bootstrap_mean(sampled_df, column) for i in range(10001)]
-    bootstrapped_means.append(sum(current_means)/len(current_means))
+# for column in sampling_df:  #Finds means for each bootstrapped sample
+#     current_means = [bootstrap_mean(sampled_df, column) for i in range(10001)]
+#     bootstrapped_means.append(sum(current_means)/len(current_means))
 
 
-for i in range(len(bootstrapped_means)):
-    print(sampling_df[i]," Original - Bootstrapped:", sampled_means[i], " - ", bootstrapped_means[i])
+# for i in range(len(bootstrapped_means)):
+#     print(sampling_df[i]," Original - Bootstrapped:", sampled_means[i], " - ", bootstrapped_means[i])
 
 
 
@@ -123,21 +123,249 @@ numeric_features = df.select_dtypes(include = np.number).columns.tolist()
 
 
 #Discretization
-sampled_df['Age'] = pd.cut(sampled_df['Age'], bins = [0, 12, 20, 60, sampled_df['Age'].max()], labels = ['Child', 'Teen', 'Adult', "Elderly"])
-print(sampled_df['Age'])
+# sampled_df['Age'] = pd.cut(sampled_df['Age'], bins = [0, 12, 20, 60, sampled_df['Age'].max()], labels = ['Child', 'Teen', 'Adult', "Elderly"])
+# print(sampled_df['Age'])
 
-sampled_df['BMI'] = pd.cut(sampled_df['BMI'], bins = [0, 18.5, 25, 30, sampled_df['BMI'].max()], right = False, labels = ['Underweight', 'Healthy Weight', 'Overweight', 'Obese'])
-print(sampled_df['BMI'])
+# sampled_df['BMI'] = pd.cut(sampled_df['BMI'], bins = [0, 18.5, 25, 30, sampled_df['BMI'].max()], right = False, labels = ['Underweight', 'Healthy Weight', 'Overweight', 'Obese'])
+# print(sampled_df['BMI'])
 
 
 #Data Analayis & Implementation-----------------------------------------------------------------------------------------------------------------------
 
-#Regression Analysis
-
-#Correlation Analysis
-
 #Decision Tree
+
+#Criterion for decision (Gini Impurity)
+def gini(labels):
+    count = np.bincount(labels)
+    probability = count / len(labels)
+    return 1 - sum(prob ** 2 for prob in probability)
+
+#Data splitting based on feature and threshold
+def data_split(x, y, feature_index, value, categorical=False):
+    left_x, left_y, right_x, right_y = [], [], [], []
+    for val, row in enumerate(x):
+        if categorical:
+            if row[feature_index] == value:
+                left_x.append(row)
+                left_y.append(y[val])
+            else:
+                right_x.append(row)
+                right_y.append(y[val])
+        else:
+            if row[feature_index] < value:
+                left_x.append(row)
+                left_y.append(y[val])
+            else:
+                right_x.append(row)
+                right_y.append(y[val])
+    return left_x, left_y, right_x, right_y
+
+#Finding best split based on Gini
+def gini_split(x,y):
+    best_gini = float("inf")
+    best_params = None
+    for index in range(len(x[0])):
+
+        unique_val = set(row[index] for row in x)
+        categorical = all(isinstance(val, int) for val in unique_val) and len(unique_val) < 10
+
+        for value in unique_val:
+            left_x, left_y, right_x, right_y = data_split(x, y, index, value, categorical)
+            if not left_y or not right_y:
+                continue
+            gini_val = (len(left_y) / len(y) * gini(left_y) + len(right_y) / len(y) * gini(right_y))
+            if gini_val < best_gini:
+                best_gini = gini_val
+                best_params = (index, value, left_x, left_y, right_x, right_y)
+    return best_params
+
+#Creating deciison tree
+def tree_builder(x, y, depth=0, max_depth = 10):
+    if len(set(y)) == 1 or depth == max_depth:
+        return {"label": max(set(y), key = y.count)} #Leaf node
+    
+    split = gini_split(x,y)
+    if split is None:
+        return {"label": max(set(y), key = y.count)} #Leaf node since no possible split
+
+    feature_index, threshold, left_x, left_y, right_x, right_y = split
+    return{
+        "feature_index": feature_index,
+        "threshold": threshold,
+        "left": tree_builder(left_x, left_y, depth + 1, max_depth),
+        "right": tree_builder(right_x, right_y, depth + 1, max_depth)
+    }
+
+#Decision Tree Function
+def decision_tree(tree, row):
+    if "label" in tree:
+        return tree["label"]
+    feature_index = tree["feature_index"]
+    threshold = tree["threshold"]
+    if row[feature_index] < threshold:
+        return decision_tree(tree["left"], row)
+    else:
+        return decision_tree(tree["right"], row)
+
+#Data to be used from Preprocessing(only numeric columns)
+sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
+
+#Features
+numerized_features_all = numeric_features #all
+
+
+#Split data into features and labels(all data)
+x_all = sampled_data.values.tolist()
+#Even though the dataset itself only has positive values for diabetes, we will randomize it so that we can see the deciison tree's output depending on the values of certain attributes
+y_all = [1 if i < len(sampled_data) / 2 else 0 for i in range(len(sampled_data))] 
+
+#Tree with all data set
+all_tree = tree_builder(x_all, y_all)
+
+
+#Testing for diabetes positivity with a varying inputs
+
+#Returns a list of random nums based on the max and min of the attribute list
+
+def rand_num(df, attributes):
+    nums = []
+    for attribute in attributes:
+        max_val = df[attribute].max()
+        min_val = df[attribute].min()
+        num = random.randrange(min_val, max_val)
+        nums.append(num)
+    return nums
+
+
+test_sample1 = x_all[0] #Example input from dataset
+sample1_decision = decision_tree(all_tree, test_sample1)
+
+test_sample2 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
+sample2_decision = decision_tree(all_tree, test_sample2)
+
+test_sample3 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
+sample3_decision = decision_tree(all_tree, test_sample3)
+
+test_sample4 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
+sample4_decision = decision_tree(all_tree, test_sample4)
+
+test_sample5 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
+sample5_decision = decision_tree(all_tree, test_sample5)
+
+print("\nCriteria: 1: Diabetes Positive, 0: Diabetes Negative")
+print("List of tested attirbutes: ", numerized_features_all) 
+print("Values for sample 1: ", test_sample1)
+print("Sample-1 Prediction:", sample1_decision)
+print("Values for sample 2: ", test_sample2)
+print("Sample-2 Prediction:", sample2_decision)
+print("Values for sample 3: ", test_sample3)
+print("Sample-3 Prediction:", sample3_decision)
+print("Values for sample 4: ", test_sample4)
+print("Sample-4 Prediction:", sample4_decision)
+print("Values for sample 5: ", test_sample5)
+print("Sample-5 Prediction:", sample5_decision)
+
+#Testing for diabetes positivity via set of symptomps, lifestyle choice, and hereditary traits
+
+
+#for this make a custom x above specific for this problem so that 
+
+#Features
+specified_features = ['Family History', 'Dietary Habits', 'Early Onset Symptoms']
+
+# #Split data into features and labels(specific data)
+
+#Requires manual mapping for string type values
+sampled_data_specified = sampled_df[specified_features].dropna()
+
+def label_encoding(df):
+    label_mapping = {}
+    for column in df.columns[:-1]:  # Exclude the label column
+        unique_values = list(set(df[column]))
+        label_mapping[column] = {value: idx for idx, value in enumerate(unique_values)}
+        df[column] = df[column].map(label_mapping[column])
+    return df, label_mapping
+
+# Encode the DataFrame
+encoded_df, encoding_map = label_encoding(sampled_data_specified)
+
+x_specified = encoded_df.values.tolist()
+y_specified = [1 if i < len(encoded_df) / 2 else 0 for i in range(len(encoded_df))] #same explanation as above
+
+# #Tree with specified data 
+specified_tree = tree_builder(x_specified, y_specified)
+
+test_sample1_specified = x_specified[0]
+sample1_decision_specified = decision_tree(specified_tree, test_sample1_specified)
+
+test_sample2_specified = [1, 0, 'No']
+sample2_decision_specified = decision_tree(specified_tree, test_sample2_specified)
+
+test_sample3_specified = [0, 0, 'No']
+sample3_decision_specified = decision_tree(specified_tree, test_sample3_specified)
+
+test_sample4_specified = [1, 1, 'No']
+sample4_decision_specified = decision_tree(specified_tree, test_sample4_specified)
+
+test_sample5_specified = [0, 1, 'Yes']
+sample5_decision_specified = decision_tree(specified_tree, test_sample5_specified)
+
+test_sample6_specified = [1, 0, 'Yes']
+sample6_decision_specified = decision_tree(specified_tree, test_sample6_specified)
+
+test_sample7_specified = [0, 0, 'Yes']
+sample7_decision_specified = decision_tree(specified_tree, test_sample7_specified)
+
+test_sample8_specified = [1, 1, 'Yes']
+sample8_decision_specified = decision_tree(specified_tree, test_sample8_specified)
+
+
+print("\nCriteria: 1: Diabetes Positive, 0: Diabetes Negative")
+print("Attribute Mappings: ", encoding_map)
+print("List of tested attirbutes: ", specified_features)
+print("Values for specified sample 1: ", test_sample1_specified)
+print("Specified-Sample-1 Prediction:", sample1_decision_specified)
+print("Values for specified sample 2: ", test_sample2_specified)
+print("Specified-Sample-2 Prediction:", sample2_decision_specified)
+print("Values for specified sample 3: ", test_sample3_specified)
+print("Specified-Sample-3 Prediction:", sample3_decision_specified)
+print("Values for specified sample 4: ", test_sample4_specified)
+print("Specified-Sample-4 Prediction:", sample4_decision_specified)
+print("Values for specified sample 5: ", test_sample5_specified)
+print("Specified-Sample-5 Prediction:", sample5_decision_specified)
+print("Values for specified sample 6: ", test_sample6_specified)
+print("Specified-Sample-6 Prediction:", sample6_decision_specified)
+print("Values for specified sample 7: ", test_sample7_specified)
+print("Specified-Sample-7 Prediction:", sample7_decision_specified)
+print("Values for specified sample 8: ", test_sample8_specified)
+print("Specified-Sample-8 Prediction:", sample8_decision_specified)
+
 
 #K-Means Clustering
 
+
+
+
+
+
+
+
 #Apriori Algorithm
+
+
+
+
+
+
+
+#Accuracy
+
+#Precision
+
+#F-1 Score
+
+#Confusion Matrix
+
+#AUC
+
+#ROC
