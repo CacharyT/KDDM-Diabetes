@@ -9,6 +9,7 @@ from scipy import stats
 from sklearn import *
 import seaborn as sns 
 import random
+import math
 
 
 #Import dataset----------------------------------------------------------------------------------------------------------------
@@ -343,9 +344,191 @@ print("Specified-Sample-8 Prediction:", sample8_decision_specified)
 
 #K-Means Clustering
 
+#Initializing first set of centroids
+def init_centroids(data, k):
+    if isinstance(data, dict):
+        data = list(data.values())
+    elif hasattr(data, 'to_numpy'):
+        data = data.to_numpy().tolist()
+    
+    return random.sample(data,k)
+
+#Calculating distance for cluster assignment
+def euclidean_distance(p1, p2):
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(p1, p2)))
+
+#Cluster assignment to centroids
+def cluster_assignment(data, centroids):
+    clusters = [[] for _ in centroids]
+    for point in data:
+        distances = [euclidean_distance(point, centroid) for centroid in centroids]
+        nearest_index = distances.index(min(distances))
+        clusters[nearest_index].append(point)
+    return clusters
+
+#Recalculating the centroids
+def recalc_centroid(clusters, data=None, k=None):
+    new_centroids = []
+    for cluster in clusters:
+        if cluster:
+            new_centroid = tuple(sum(dim) / len(cluster) for dim in zip(*cluster))
+            new_centroids.append(new_centroid)
+        else:
+            new_centroids.append(init_centroids(data,k)[0])
+    return new_centroids
+
+#The K-means algorithm
+def kmeans(data, k, max_iter=200):
+    centroids = init_centroids(data, k)
+
+    for i in range(max_iter):
+        clusters = cluster_assignment(data, centroids)
+        new_centroids = recalc_centroid(clusters)
+
+        if new_centroids == centroids:
+            print("No new centroids. Finished.")
+            break
+        centroids = new_centroids
+
+    return clusters, centroids
+
+
+#Data to be used from Preprocessing(only numeric columns)
+sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
+
+#Features
+numerized_features = numeric_features
+
+#Can only be visualized in pairs of two
+feature_set1 = [numeric_features[0], numeric_features[1]]
+feature_set2 = [numeric_features[2], numeric_features[3]]
+feature_set3 = [numeric_features[4], numeric_features[5]]
+feature_set4 = [numeric_features[6], numeric_features[7]]
+feature_set5 = [numeric_features[8], numeric_features[9]]
+feature_set6 = [numeric_features[10], numeric_features[11]]
+feature_set7 = [numeric_features[12]]
+
+tupled_data1 = [tuple(row) for row in sampled_data[feature_set1].values]
+tupled_data2 = [tuple(row) for row in sampled_data[feature_set2].values]
+tupled_data3 = [tuple(row) for row in sampled_data[feature_set3].values]
+tupled_data4 = [tuple(row) for row in sampled_data[feature_set4].values]
+tupled_data5 = [tuple(row) for row in sampled_data[feature_set5].values]
+tupled_data6 = [tuple(row) for row in sampled_data[feature_set6].values]
+tupled_data7 = [tuple(row) for row in sampled_data[feature_set7].values]
+
+#Number of clusters, 1 for each type of diabetes
+k = len(sampled_df['Target'].unique())
+
+clusters1, centroids1 = kmeans(tupled_data1, k)
+clusters2, centroids2 = kmeans(tupled_data2, k)
+clusters3, centroids3 = kmeans(tupled_data3, k)
+clusters4, centroids4 = kmeans(tupled_data4, k)
+clusters5, centroids5 = kmeans(tupled_data5, k)
+clusters6, centroids6 = kmeans(tupled_data6, k)
+clusters7, centroids7 = kmeans(tupled_data7, k)
 
 
 
+#Visualization
+colors = []
+for i in range(len(numeric_features)):
+    r = np.round(np.random.rand(), 1)
+    g = np.round(np.random.rand(), 1)
+    b = np.round(np.random.rand(), 1)
+    colors.append((r,g,b))
+
+
+plt.xlim(0,90)
+plt.ylim(0,90)
+
+#For feature set 1
+for i, cluster in enumerate(clusters1):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids1)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
+
+#For feature set 2
+for i, cluster in enumerate(clusters2):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids2)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
+
+#For feature set 3
+for i, cluster in enumerate(clusters3):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids3)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
+
+
+#For feature set 4
+for i, cluster in enumerate(clusters4):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids4)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
+
+
+#For feature set 5
+for i, cluster in enumerate(clusters5):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids5)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
+
+
+
+#For feature set 6
+for i, cluster in enumerate(clusters6):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids6)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
+
+
+#For feature set 7
+for i, cluster in enumerate(clusters7):
+    cluster_points = list(zip(*cluster))
+    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+
+x_centroid, y_centroid = zip(*centroids7)
+plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+
+plt.title('K-means Clustering')
+plt.legend()
+plt.show()
 
 
 
