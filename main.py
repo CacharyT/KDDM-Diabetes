@@ -398,6 +398,7 @@ sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
 
 #Features
 numerized_features = numeric_features
+all_tupled_data = [tuple(row) for row in sampled_data[numerized_features].values]   #THIS CONTAINS ALL FEATURES (JUST CAN'T BE USED FOR VISUALIZATION)
 
 #Can only be visualized in pairs of two
 feature_set1 = [numeric_features[0], numeric_features[1]]
@@ -419,6 +420,8 @@ tupled_data7 = [tuple(row) for row in sampled_data[feature_set7].values]
 #Number of clusters, 1 for each type of diabetes
 k = len(sampled_df['Target'].unique())
 
+
+clusters, centroids = kmeans(all_tupled_data, k) #THIS IS THE CORRECT OUTPUT (JUST CAN'T VISUALIZE)
 clusters1, centroids1 = kmeans(tupled_data1, k)
 clusters2, centroids2 = kmeans(tupled_data2, k)
 clusters3, centroids3 = kmeans(tupled_data3, k)
