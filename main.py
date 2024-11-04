@@ -10,7 +10,7 @@ from sklearn import *
 import seaborn as sns 
 import random
 import math
-
+from itertools import combinations, chain
 
 #Import dataset----------------------------------------------------------------------------------------------------------------
 df = pd.read_csv("diabetes_dataset00.csv")
@@ -35,12 +35,12 @@ print("\nNumber of duplicated values: ", dupCount)
 #Boxplotting to find any noise data and outliers (Numeric Features only)
 numeric_features = df.select_dtypes(include = np.number).columns.tolist()
 
-# for column in numeric_features:
-#     plt.boxplot(df[column].tolist())
-#     plt.title(column)
-#     plt.xlabel("Data")
-#     plt.ylabel("Values")
-#     plt.show()
+for column in numeric_features:
+    plt.boxplot(df[column].tolist())
+    plt.title(column)
+    plt.xlabel("Data")
+    plt.ylabel("Values")
+    plt.show()
 
 #Removing outliers (using IQR)
 q1_waist, q3_waist = np.percentile(df['Waist Circumference'], [25,75])
@@ -63,8 +63,8 @@ def plotOutliers(dfName):
     plt.ylabel("Values")
     plt.show()
     
-# plotOutliers('Waist Circumference')
-# plotOutliers('Pulmonary Function')
+plotOutliers('Waist Circumference')
+plotOutliers('Pulmonary Function')
 
 
 
@@ -80,24 +80,24 @@ print("New population size: ", len(sampled_df))
 #Bootstrapping to determine represenativity of original sample (only numerics)
 sampling_df = df.select_dtypes(include = np.number).columns.tolist()
 
-# sampled_means = []
-# for column in sampling_df:  #Finds means for the original sample
-#     sampled_means.append(sampled_df[column].mean())
+sampled_means = []
+for column in sampling_df:  #Finds means for the original sample
+    sampled_means.append(sampled_df[column].mean())
 
 
-# def bootstrap_mean(df, columnName): #Bootstrapping function for means
-#     bootstrapped = df.sample(frac = 0.10, replace = True)
-#     return  bootstrapped[columnName].mean()
+def bootstrap_mean(df, columnName): #Bootstrapping function for means
+    bootstrapped = df.sample(frac = 0.10, replace = True)
+    return  bootstrapped[columnName].mean()
 
-# bootstrapped_means = []
+bootstrapped_means = []
 
-# for column in sampling_df:  #Finds means for each bootstrapped sample
-#     current_means = [bootstrap_mean(sampled_df, column) for i in range(10001)]
-#     bootstrapped_means.append(sum(current_means)/len(current_means))
+for column in sampling_df:  #Finds means for each bootstrapped sample
+    current_means = [bootstrap_mean(sampled_df, column) for i in range(10001)]
+    bootstrapped_means.append(sum(current_means)/len(current_means))
 
 
-# for i in range(len(bootstrapped_means)):
-#     print(sampling_df[i]," Original - Bootstrapped:", sampled_means[i], " - ", bootstrapped_means[i])
+for i in range(len(bootstrapped_means)):
+    print(sampling_df[i]," Original - Bootstrapped:", sampled_means[i], " - ", bootstrapped_means[i])
 
 
 
@@ -538,20 +538,200 @@ plt.show()
 
 #Apriori Algorithm
 
+#Data to be used from Preprocessing(only numeric columns)
+sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
+
+# Convert DataFrame to a list of transactions
+def create_transactions(data):
+    return data.apply(lambda row: set(row.index[row == 1]), axis=1).tolist()
+
+transactions = create_transactions(sampled_data)
+
+# Generate frequent itemsets
+def get_frequent_itemsets(transactions, min_support):
+    itemsets = {}
+    # Count occurrences of itemsets
+    for transaction in transactions:
+        for item in transaction:
+            if item in itemsets:
+                itemsets[item] += 1
+            else:
+                itemsets[item] = 1
+
+    # Filter itemsets by minimum support
+    return {item: count for item, count in itemsets.items() if count >= min_support}
+
+# Generate combinations of items
+def generate_combinations(itemsets, length):
+    return list(combinations(itemsets, length))
+
+# Apriori Algorithm
+def apriori(transactions, min_support):
+    single_itemsets = get_frequent_itemsets(transactions, min_support)
+    all_frequent_itemsets = dict(single_itemsets)
+    
+    length = 2
+    while single_itemsets:
+        candidate_itemsets = generate_combinations(single_itemsets.keys(), length)
+        itemsets_count = {}
+
+        for transaction in transactions:
+            for candidate in candidate_itemsets:
+                if set(candidate).issubset(transaction):
+                    if candidate in itemsets_count:
+                        itemsets_count[candidate] += 1
+                    else:
+                        itemsets_count[candidate] = 1
+
+        # Filter itemsets by minimum support
+        single_itemsets = {itemset: count for itemset, count in itemsets_count.items() if count >= min_support}
+        all_frequent_itemsets.update(single_itemsets)
+
+        length += 1
+
+    return all_frequent_itemsets
+
+# Define minimum support
+min_support = 2  # This can be adjusted based on your dataset size
+frequent_itemsets = apriori(transactions, min_support)
+
+# Display frequent itemsets
+print("Frequent Itemsets:")
+for itemset, count in frequent_itemsets.items():
+    print(f"{itemset}: {count}")
+
+# Function to generate association rules
+def generate_rules(frequent_itemsets, min_confidence):
+    rules = []
+    for itemset in frequent_itemsets:
+        for item in itemset:
+            antecedent = set(itemset) - {item}
+            if len(antecedent) > 0:
+                support = frequent_itemsets[itemset]
+                confidence = support / frequent_itemsets[frozenset(antecedent)]
+                if confidence >= min_confidence:
+                    rules.append((frozenset(antecedent), item, confidence))
+    return rules
+
+# Define minimum confidence
+min_confidence = 0.5
+association_rules = generate_rules(frequent_itemsets, min_confidence)
+
+# Display association rules
+print("\nAssociation Rules:")
+for antecedent, consequent, confidence in association_rules:
+    print(f"{antecedent} -> {consequent} (Confidence: {confidence:.2f})")
 
 
 
+#Accuracy, Precision, Recall, F-1 Score
+
+def calculate_metrics(y_true, y_pred):
+    TP = sum(1 for true, pred in zip(y_true, y_pred) if true == 1 and pred == 1)
+    TN = sum(1 for true, pred in zip(y_true, y_pred) if true == 0 and pred == 0)
+    FP = sum(1 for true, pred in zip(y_true, y_pred) if true == 0 and pred == 1)
+    FN = sum(1 for true, pred in zip(y_true, y_pred) if true == 1 and pred == 0)
+
+    # Calculate metrics
+    accuracy = (TP + TN) / len(y_true) if len(y_true) > 0 else 0
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    f1_score = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0
+
+    return accuracy, precision, recall, f1_score
 
 
 
-#Accuracy
+#Confusion Matrix, AUC and ROC
 
-#Precision
 
-#F-1 Score
+def confusion_matrix(actual, predicted):
+    # Initialize counts
+    TP = TN = FP = FN = 0
+    
+    # Iterate through the actual and predicted lists
+    for a, p in zip(actual, predicted):
+        if a == 1 and p == 1:
+            TP += 1  # True Positive
+        elif a == 0 and p == 0:
+            TN += 1  # True Negative
+        elif a == 0 and p == 1:
+            FP += 1  # False Positive
+        elif a == 1 and p == 0:
+            FN += 1  # False Negative
 
-#Confusion Matrix
+    # Create the confusion matrix
+    matrix = {
+        "True Positive": TP,
+        "True Negative": TN,
+        "False Positive": FP,
+        "False Negative": FN
+    }
+    
+    return matrix
 
-#AUC
 
-#ROC
+def calculate_auc(y_true, y_scores):
+    # Combine true labels and scores
+    data = sorted(zip(y_true, y_scores), key=lambda x: x[1])
+    
+    # Unzip the sorted data
+    y_true_sorted, y_scores_sorted = zip(*data)
+    
+    # Calculate True Positive Rate (TPR) and False Positive Rate (FPR)
+    tp = 0
+    fp = 0
+    fn = sum(y_true)  # Total positives
+    tn = len(y_true) - fn  # Total negatives
+    
+    tpr = []
+    fpr = []
+    
+    for i in range(len(y_scores_sorted)):
+        if y_true_sorted[i] == 1:
+            tp += 1
+        else:
+            fp += 1
+        
+        # Calculate rates
+        tpr.append(tp / (tp + fn))
+        fpr.append(fp / (fp + tn))
+    
+    # Calculate AUC using the trapezoidal rule
+    auc = 0.0
+    for i in range(1, len(fpr)):
+        auc += (fpr[i] - fpr[i-1]) * (tpr[i] + tpr[i-1]) / 2
+
+    return auc
+
+
+def calculate_roc(y_true, y_scores):
+    # Combine true labels and scores
+    data = sorted(zip(y_true, y_scores), key=lambda x: x[1])
+    
+    # Unzip the sorted data
+    y_true_sorted, y_scores_sorted = zip(*data)
+    
+    # Initialize variables
+    tp = 0
+    fp = 0
+    fn = sum(y_true)  # Total positives
+    tn = len(y_true) - fn  # Total negatives
+    
+    tpr = [0]
+    fpr = [0]
+    
+    for i in range(len(y_scores_sorted)):
+        if y_true_sorted[i] == 1:
+            tp += 1
+        else:
+            fp += 1
+        
+        # Calculate rates
+        tpr.append(tp / (tp + fn))
+        fpr.append(fp / (fp + tn))
+    
+    return fpr, tpr
+
+
+#Need to visualize these
