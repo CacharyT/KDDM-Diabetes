@@ -1,52 +1,32 @@
-encoded_df, encoding_map = label_encoding(sampled_data_specified)
+#Visualization specifically for Target and Early Onset Symtomps
 
-# x_specified = encoded_df.values.tolist()
-# y_specified = [1 if i < len(encoded_df) / 2 else 0 for i in range(len(encoded_df))] #same explanation as above
+cluster_sample = sampled_df
 
-# # #Tree with specified data 
-# specified_tree = tree_builder(x_specified, y_specified)
+#Encoding Target and early onset sympstoms
+target_map = target_mapping
+early_onset_map = {'Yes': 1, 'No': 0}
 
-# test_sample1_specified = x_specified[0]
-# sample1_decision_specified = decision_tree(specified_tree, test_sample1_specified)
+cluster_sample['Target_encoded'] = cluster_sample['Target'].map(target_map)
+cluster_sample['early_onset_symptoms_encoded'] = cluster_sample['Early Onset Symptoms'].map(early_onset_map)
 
-# test_sample2_specified = [1, 0, 'No']
-# sample2_decision_specified = decision_tree(specified_tree, test_sample2_specified)
+features = ['Target_encoded', 'early_onset_symptoms_encoded']
+data = cluster_sample[features].values
 
-# test_sample3_specified = [0, 0, 'No']
-# sample3_decision_specified = decision_tree(specified_tree, test_sample3_specified)
+centroids_s, clusters_s = k_means(data, 3)
 
-# test_sample4_specified = [1, 1, 'No']
-# sample4_decision_specified = decision_tree(specified_tree, test_sample4_specified)
+# Plotting the results
+plt.figure(figsize=(8, 6))
 
-# test_sample5_specified = [0, 1, 'Yes']
-# sample5_decision_specified = decision_tree(specified_tree, test_sample5_specified)
+# Scatter plot of the data points, colored by clusters
+scatter = plt.scatter(cluster_sample['Target_encoded'], cluster_sample['early_onset_symptoms_encoded'], c=clusters, cmap='viridis', marker='o', alpha=0.6)
 
-# test_sample6_specified = [1, 0, 'Yes']
-# sample6_decision_specified = decision_tree(specified_tree, test_sample6_specified)
+# Plot the centroids in red with a larger 'X' marker
+plt.scatter(centroids[:, 0], centroids[:, 1], c='red', marker='X', s=200, label='Centroids')
 
-# test_sample7_specified = [0, 0, 'Yes']
-# sample7_decision_specified = decision_tree(specified_tree, test_sample7_specified)
-
-# test_sample8_specified = [1, 1, 'Yes']
-# sample8_decision_specified = decision_tree(specified_tree, test_sample8_specified)
-
-
-# print("\nCriteria: 1: Diabetes Positive, 0: Diabetes Negative")
-# print("Attribute Mappings: ", encoding_map)
-# print("List of tested attirbutes: ", specified_features)
-# print("Values for specified sample 1: ", test_sample1_specified)
-# print("Specified-Sample-1 Prediction:", sample1_decision_specified)
-# print("Values for specified sample 2: ", test_sample2_specified)
-# print("Specified-Sample-2 Prediction:", sample2_decision_specified)
-# print("Values for specified sample 3: ", test_sample3_specified)
-# print("Specified-Sample-3 Prediction:", sample3_decision_specified)
-# print("Values for specified sample 4: ", test_sample4_specified)
-# print("Specified-Sample-4 Prediction:", sample4_decision_specified)
-# print("Values for specified sample 5: ", test_sample5_specified)
-# print("Specified-Sample-5 Prediction:", sample5_decision_specified)
-# print("Values for specified sample 6: ", test_sample6_specified)
-# print("Specified-Sample-6 Prediction:", sample6_decision_specified)
-# print("Values for specified sample 7: ", test_sample7_specified)
-# print("Specified-Sample-7 Prediction:", sample7_decision_specified)
-# print("Values for specified sample 8: ", test_sample8_specified)
-# print("Specified-Sample-8 Prediction:", sample8_decision_specified)
+# Adding labels and title
+plt.title("K-Means Clustering with Target and Early Onset Symptoms")
+plt.xlabel('Target')
+plt.ylabel('Early Onset Symptoms')
+plt.legend()
+plt.colorbar(scatter, label='Cluster ID')
+plt.show()

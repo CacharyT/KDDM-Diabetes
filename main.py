@@ -11,6 +11,7 @@ import seaborn as sns
 import random
 import math
 from itertools import combinations, chain
+from collections import defaultdict
 
 #Import dataset----------------------------------------------------------------------------------------------------------------
 df = pd.read_csv("diabetes_dataset00.csv")
@@ -133,605 +134,593 @@ numeric_features = df.select_dtypes(include = np.number).columns.tolist()
 
 #Data Analayis & Implementation-----------------------------------------------------------------------------------------------------------------------
 
-#Decision Tree
 
-#Criterion for decision (Gini Impurity)
-def gini(labels):
-    count = np.bincount(labels)
-    probability = count / len(labels)
+
+#Decision Tree-----------------------------------------------------------------
+
+
+#Leaf Node Constructor
+class Node:
+    def __init__(self, feature=None, threshold=None, left=None, right=None, value=None, class_distribution=None):
+        self.feature = feature        # Feature for splitting
+        self.threshold = threshold    # Threshold for splitting
+        self.left = left              
+        self.right = right            
+        self.value = value             #Leaf class
+        self.class_distribution = class_distribution  #needed for calculating AUC and ROC probabilities
+
+
+#Splitting criteria (Gini Impurity)
+def gini(data):
+    count = np.bincount(data)
+    probability = count / len(data)
     return 1 - sum(prob ** 2 for prob in probability)
 
-#Data splitting based on feature and threshold
-def data_split(x, y, feature_index, value, categorical=False):
-    left_x, left_y, right_x, right_y = [], [], [], []
-    for val, row in enumerate(x):
-        if categorical:
-            if row[feature_index] == value:
-                left_x.append(row)
-                left_y.append(y[val])
-            else:
-                right_x.append(row)
-                right_y.append(y[val])
-        else:
-            if row[feature_index] < value:
-                left_x.append(row)
-                left_y.append(y[val])
-            else:
-                right_x.append(row)
-                right_y.append(y[val])
-    return left_x, left_y, right_x, right_y
+#Splitting Effectiveness Criteria (Information Gain)
+def information_gain(node, left_node, right_node):
+    main_gini = gini(node)
+    left_weight = len(left_node)/len(node)
+    right_weight = len(right_node)/len(node)
+    weighted_gini = (left_weight * gini(left_node) + right_weight * gini(right_node))
+    return main_gini - weighted_gini
 
-#Finding best split based on Gini
-def gini_split(x,y):
-    best_gini = float("inf")
-    best_params = None
-    for index in range(len(x[0])):
-
-        unique_val = set(row[index] for row in x)
-        categorical = all(isinstance(val, int) for val in unique_val) and len(unique_val) < 10
-
-        for value in unique_val:
-            left_x, left_y, right_x, right_y = data_split(x, y, index, value, categorical)
-            if not left_y or not right_y:
+#Finding Best Split
+def best_split(node1, node2):
+    best_feature, best_threshold, best_gain = None, None, -1
+    for feature in range (node1.shape[1]):
+        thresholds = set(node1[:, feature])
+        for threshold in thresholds:
+            left_mask = node1[:, feature] <= threshold
+            right_mask = ~left_mask
+            left_node, right_node = node2[left_mask], node2[right_mask]
+            if len(left_node) == 0 or len(right_node) == 0:               # No splits so skip
                 continue
-            gini_val = (len(left_y) / len(y) * gini(left_y) + len(right_y) / len(y) * gini(right_y))
-            if gini_val < best_gini:
-                best_gini = gini_val
-                best_params = (index, value, left_x, left_y, right_x, right_y)
-    return best_params
+            gain = information_gain(node2, left_node, right_node)
+            if gain > best_gain:
+                best_feature, best_threshold, best_gain = feature, threshold, gain
+    return best_feature, best_threshold
 
-#Creating deciison tree
-def tree_builder(x, y, depth=0, max_depth = 10):
-    if len(set(y)) == 1 or depth == max_depth:
-        return {"label": max(set(y), key = y.count)} #Leaf node
+#Tree Builder
+def build_tree(X, y, depth=0, max_depth=3):
+
+    #Same labels so return
+    if len(set(y)) == 1:
+        class_distribution = {label: len(y) for label in set(y)} #For probabilitiy AUC and ROC
+        return Node(value=y[0], class_distribution=class_distribution)
     
-    split = gini_split(x,y)
-    if split is None:
-        return {"label": max(set(y), key = y.count)} #Leaf node since no possible split
+    #Max depth
+    if depth >= max_depth:
+        majority_class = max(set(y), key=list(y).count)
+        class_distribution = {label: list(y).count(label) for label in set(y)}
+        return Node(value=majority_class, class_distribution=class_distribution)
+    
+    #Best Split finder
+    feature, threshold = best_split(X, y)
+    if feature is None: 
+        majority_class = max(set(y), key=list(y).count)
+        return Node(value=majority_class)
+    
+    #Decision Splitting
+    left_mask = X[:, feature] <= threshold
+    right_mask = ~left_mask
+    left_node = build_tree(X[left_mask], y[left_mask], depth + 1, max_depth)
+    right_node = build_tree(X[right_mask], y[right_mask], depth + 1, max_depth)
+    
+    #Create the node
+    return Node(feature=feature, threshold=threshold, left=left_node, right=right_node)
 
-    feature_index, threshold, left_x, left_y, right_x, right_y = split
-    return{
-        "feature_index": feature_index,
-        "threshold": threshold,
-        "left": tree_builder(left_x, left_y, depth + 1, max_depth),
-        "right": tree_builder(right_x, right_y, depth + 1, max_depth)
-    }
 
-#Decision Tree Function
-def decision_tree(tree, row):
-    if "label" in tree:
-        return tree["label"]
-    feature_index = tree["feature_index"]
-    threshold = tree["threshold"]
-    if row[feature_index] < threshold:
-        return decision_tree(tree["left"], row)
+
+#Predictor
+def predict(sample, tree, return_probabilities=False):
+
+    #Already leaf node so return (also returns probability)
+    if tree.value is not None: 
+        if return_probabilities and tree.class_distribution is not None:
+            total_samples = sum(tree.class_distribution.values())
+            probabilities = {cls: count / total_samples for cls, count in tree.class_distribution.items()}
+            return probabilities
+        return tree.value  # returns class label
+    
+    # Traverse through the tree via the thresholds
+    if sample[tree.feature] <= tree.threshold:
+        return predict(sample, tree.left, return_probabilities)
     else:
-        return decision_tree(tree["right"], row)
-
-#Data to be used from Preprocessing(only numeric columns)
-sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
-
-#Features
-numerized_features_all = numeric_features #all
+        return predict(sample, tree.right, return_probabilities)
 
 
-#Split data into features and labels(all data)
-x_all = sampled_data.values.tolist()
-#Even though the dataset itself only has positive values for diabetes, we will randomize it so that we can see the deciison tree's output depending on the values of certain attributes
-y_all = [1 if i < len(sampled_data) / 2 else 0 for i in range(len(sampled_data))] 
-
-#Tree with all data set
-all_tree = tree_builder(x_all, y_all)
+def predict_all(X, tree, return_probabilities=False):
+    return [predict(sample, tree, return_probabilities) for sample in X]
 
 
-#Testing for diabetes positivity with a varying inputs
 
-#Returns a list of random nums based on the max and min of the attribute list
+#Training
 
-def rand_num(df, attributes):
-    nums = []
-    for attribute in attributes:
-        max_val = df[attribute].max()
-        min_val = df[attribute].min()
-        num = random.randrange(min_val, max_val)
-        nums.append(num)
-    return nums
+#Numeric Features
+numerized_features = numeric_features 
+
+#Values from features
+x = sampled_df[numerized_features].values
 
 
-test_sample1 = x_all[0] #Example input from dataset
-sample1_decision = decision_tree(all_tree, test_sample1)
-
-test_sample2 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
-sample2_decision = decision_tree(all_tree, test_sample2)
-
-test_sample3 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
-sample3_decision = decision_tree(all_tree, test_sample3)
-
-test_sample4 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
-sample4_decision = decision_tree(all_tree, test_sample4)
-
-test_sample5 = rand_num(sampled_df, numerized_features_all) #Custom input with random numbers
-sample5_decision = decision_tree(all_tree, test_sample5)
-
-print("\nCriteria: 1: Diabetes Positive, 0: Diabetes Negative")
-print("List of tested attirbutes: ", numerized_features_all) 
-print("Values for sample 1: ", test_sample1)
-print("Sample-1 Prediction:", sample1_decision)
-print("Values for sample 2: ", test_sample2)
-print("Sample-2 Prediction:", sample2_decision)
-print("Values for sample 3: ", test_sample3)
-print("Sample-3 Prediction:", sample3_decision)
-print("Values for sample 4: ", test_sample4)
-print("Sample-4 Prediction:", sample4_decision)
-print("Values for sample 5: ", test_sample5)
-print("Sample-5 Prediction:", sample5_decision)
-
-#Testing for diabetes positivity via set of symptomps, lifestyle choice, and hereditary traits
+#Using Target (type of diabetes) feature as a classifier for prediction based on numerical features
+target_mapping = {label: idx for idx, label in enumerate(sampled_df["Target"].unique())}
+y = sampled_df["Target"].map(target_mapping).values
 
 
-#for this make a custom x above specific for this problem so that 
+#Using the dataset, split 80/20 for training and testing
+split = int(0.8 * len(x))
 
-#Features
-specified_features = ['Family History', 'Dietary Habits', 'Early Onset Symptoms']
+#Training & testing Data
+x_train, x_test = x[:split], x[split:]
+y_train, y_test = y[:split], y[split:]
 
-# #Split data into features and labels(specific data)
-
-#Requires manual mapping for string type values
-sampled_data_specified = sampled_df[specified_features].dropna()
-
-def label_encoding(df):
-    label_mapping = {}
-    for column in df.columns[:-1]:  # Exclude the label column
-        unique_values = list(set(df[column]))
-        label_mapping[column] = {value: idx for idx, value in enumerate(unique_values)}
-        df[column] = df[column].map(label_mapping[column])
-    return df, label_mapping
-
-# Encode the DataFrame
-encoded_df, encoding_map = label_encoding(sampled_data_specified)
-
-x_specified = encoded_df.values.tolist()
-y_specified = [1 if i < len(encoded_df) / 2 else 0 for i in range(len(encoded_df))] #same explanation as above
-
-# #Tree with specified data 
-specified_tree = tree_builder(x_specified, y_specified)
-
-test_sample1_specified = x_specified[0]
-sample1_decision_specified = decision_tree(specified_tree, test_sample1_specified)
-
-test_sample2_specified = [1, 0, 'No']
-sample2_decision_specified = decision_tree(specified_tree, test_sample2_specified)
-
-test_sample3_specified = [0, 0, 'No']
-sample3_decision_specified = decision_tree(specified_tree, test_sample3_specified)
-
-test_sample4_specified = [1, 1, 'No']
-sample4_decision_specified = decision_tree(specified_tree, test_sample4_specified)
-
-test_sample5_specified = [0, 1, 'Yes']
-sample5_decision_specified = decision_tree(specified_tree, test_sample5_specified)
-
-test_sample6_specified = [1, 0, 'Yes']
-sample6_decision_specified = decision_tree(specified_tree, test_sample6_specified)
-
-test_sample7_specified = [0, 0, 'Yes']
-sample7_decision_specified = decision_tree(specified_tree, test_sample7_specified)
-
-test_sample8_specified = [1, 1, 'Yes']
-sample8_decision_specified = decision_tree(specified_tree, test_sample8_specified)
+#Training the Tree
+trained_tree = build_tree(x_train, y_train, max_depth = 3) #arbitrary depth, may affect results, lower # = less complex
 
 
-print("\nCriteria: 1: Diabetes Positive, 0: Diabetes Negative")
-print("Attribute Mappings: ", encoding_map)
-print("List of tested attirbutes: ", specified_features)
-print("Values for specified sample 1: ", test_sample1_specified)
-print("Specified-Sample-1 Prediction:", sample1_decision_specified)
-print("Values for specified sample 2: ", test_sample2_specified)
-print("Specified-Sample-2 Prediction:", sample2_decision_specified)
-print("Values for specified sample 3: ", test_sample3_specified)
-print("Specified-Sample-3 Prediction:", sample3_decision_specified)
-print("Values for specified sample 4: ", test_sample4_specified)
-print("Specified-Sample-4 Prediction:", sample4_decision_specified)
-print("Values for specified sample 5: ", test_sample5_specified)
-print("Specified-Sample-5 Prediction:", sample5_decision_specified)
-print("Values for specified sample 6: ", test_sample6_specified)
-print("Specified-Sample-6 Prediction:", sample6_decision_specified)
-print("Values for specified sample 7: ", test_sample7_specified)
-print("Specified-Sample-7 Prediction:", sample7_decision_specified)
-print("Values for specified sample 8: ", test_sample8_specified)
-print("Specified-Sample-8 Prediction:", sample8_decision_specified)
+#Overall prediction w/ own dataset
+predictions = [predict(row, trained_tree) for row in x]
 
 
-#K-Means Clustering
+#Custom predictions with pre-defined data
+
+#Pre-defined "normal" levels
+normal_levels = [
+    24,   # Insulin Levels (under 25)
+    38,   # Age (average age in America - 2022)
+    20,   # BMI (between 18.5 and 24.9)
+    80,   # Blood Pressure (random)
+    150,  # Cholesterol Levels (<200)
+    99,   # Waist Circumference (average in cm)
+    80,   # Blood Glucose Levels (between 70 and 100)
+    30,   # Weight Gain During Pregnancy (between 25 nd 35)
+    90,   # Pancreatic Health (random)
+    95,   # Pulmonary Function (random)
+    88,   # Neurological Assessments (random)
+    50,   # Digestive Enzyme Levels (random)
+    3.5   # Birth Weight (between 5.5 to 10 lb but in kg)
+]
+
+high_Insulin = [
+    80,    
+    38,   
+    20,   
+    80,   
+    150,  
+    99,   
+    80,   
+    30,   
+    90,   
+    95,   
+    88,   
+    50,   
+    3.5   
+]
+
+high_BMI = [
+    24,    
+    38,   
+    30,   
+    80,   
+    150,  
+    99,   
+    80,   
+    30,   
+    90,   
+    95,   
+    88,   
+    50,   
+    3.5   
+]
+
+high_Cholesterol = [
+    24,    
+    38,   
+    20,   
+    80,   
+    300,  
+    99,   
+    80,   
+    30,   
+    90,   
+    95,   
+    88,   
+    50,   
+    3.5   
+]
+
+high_Glucose = [
+    24,    
+    38,   
+    20,   
+    80,   
+    150,  
+    99,   
+    150,   
+    30,   
+    90,   
+    95,   
+    88,   
+    50,   
+    3.5   
+]
+
+
+high_Insulin = np.array(high_Insulin)
+high_BMI = np.array(high_BMI)
+high_Cholesterol = np.array(high_Cholesterol)
+high_Glucose = np.array(high_Glucose)
+
+#Predictions
+p_Insulin = predict(high_Insulin, trained_tree)
+p_BMI = predict(high_BMI, trained_tree)
+p_Cholesterol = predict(high_Cholesterol, trained_tree)
+p_Glucose = predict(high_Glucose, trained_tree)
+
+# Map the numeric label back to the class name
+predicted_c1 = [key for key, value in target_mapping.items() if value == p_Insulin][0]
+predicted_c2 = [key for key, value in target_mapping.items() if value == p_BMI][0]
+predicted_c3 = [key for key, value in target_mapping.items() if value == p_Cholesterol][0]
+predicted_c4 = [key for key, value in target_mapping.items() if value == p_Glucose][0]
+
+print("\nPredicted class for the high insluin:", predicted_c1)
+print("Predicted class for the high BMI:", predicted_c2)
+print("Predicted class for the high cholesterol:", predicted_c3)
+print("Predicted class for the high glucose:", predicted_c4)
+
+
+
+
+
+
+
+
+
+#K-Means Clustering-----------------------------------------------------------------------
 
 #Initializing first set of centroids
-def init_centroids(data, k):
-    if isinstance(data, dict):
-        data = list(data.values())
-    elif hasattr(data, 'to_numpy'):
-        data = data.to_numpy().tolist()
+def initialize_centroids(data, k):
+    indices = np.random.choice(data.shape[0], k, replace=False)
+    return data[indices]
+
+#Assigns the clusters
+def assign_clusters(data, centroids):
+    distances = np.linalg.norm(data[:, np.newaxis] - centroids, axis=2)
+    return np.argmin(distances, axis=1)
+
+#Updates centroids based on assigned data
+def update_centroids(data, clusters, k):
+    centroids = np.array([data[clusters == i].mean(axis=0) for i in range(k)])
+    return centroids
+
+#Checks wether no more movement or very little for the centroids
+def has_converged(old_centroids, new_centroids, tol=1e-4):
+    return np.all(np.linalg.norm(old_centroids - new_centroids, axis=1) < tol)
+
+
+def k_means(data, k, max_iterations=100, tol=1e-4):
+    centroids = initialize_centroids(data, k)
     
-    return random.sample(data,k)
+    for iteration in range(max_iterations):
 
-#Calculating distance for cluster assignment
-def euclidean_distance(p1, p2):
-    return math.sqrt(sum((x - y) ** 2 for x, y in zip(p1, p2)))
+        clusters = assign_clusters(data, centroids)
+        new_centroids = update_centroids(data, clusters, k)
 
-#Cluster assignment to centroids
-def cluster_assignment(data, centroids):
-    clusters = [[] for _ in centroids]
-    for point in data:
-        distances = [euclidean_distance(point, centroid) for centroid in centroids]
-        nearest_index = distances.index(min(distances))
-        clusters[nearest_index].append(point)
-    return clusters
-
-#Recalculating the centroids
-def recalc_centroid(clusters, data=None, k=None):
-    new_centroids = []
-    for cluster in clusters:
-        if cluster:
-            new_centroid = tuple(sum(dim) / len(cluster) for dim in zip(*cluster))
-            new_centroids.append(new_centroid)
-        else:
-            new_centroids.append(init_centroids(data,k)[0])
-    return new_centroids
-
-#The K-means algorithm
-def kmeans(data, k, max_iter=200):
-    centroids = init_centroids(data, k)
-
-    for i in range(max_iter):
-        clusters = cluster_assignment(data, centroids)
-        new_centroids = recalc_centroid(clusters)
-
-        if new_centroids == centroids:
-            print("No new centroids. Finished.")
+        if has_converged(centroids, new_centroids, tol):
+            print(f"Converged after {iteration + 1} iterations.")
             break
+        
         centroids = new_centroids
-
-    return clusters, centroids
-
-
-#Data to be used from Preprocessing(only numeric columns)
-sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
-
-#Features
-numerized_features = numeric_features
-all_tupled_data = [tuple(row) for row in sampled_data[numerized_features].values]   #THIS CONTAINS ALL FEATURES (JUST CAN'T BE USED FOR VISUALIZATION)
-
-#Can only be visualized in pairs of two
-feature_set1 = [numeric_features[0], numeric_features[1]]
-feature_set2 = [numeric_features[2], numeric_features[3]]
-feature_set3 = [numeric_features[4], numeric_features[5]]
-feature_set4 = [numeric_features[6], numeric_features[7]]
-feature_set5 = [numeric_features[8], numeric_features[9]]
-feature_set6 = [numeric_features[10], numeric_features[11]]
-feature_set7 = [numeric_features[12]]
-
-tupled_data1 = [tuple(row) for row in sampled_data[feature_set1].values]
-tupled_data2 = [tuple(row) for row in sampled_data[feature_set2].values]
-tupled_data3 = [tuple(row) for row in sampled_data[feature_set3].values]
-tupled_data4 = [tuple(row) for row in sampled_data[feature_set4].values]
-tupled_data5 = [tuple(row) for row in sampled_data[feature_set5].values]
-tupled_data6 = [tuple(row) for row in sampled_data[feature_set6].values]
-tupled_data7 = [tuple(row) for row in sampled_data[feature_set7].values]
-
-#Number of clusters, 1 for each type of diabetes
-k = len(sampled_df['Target'].unique())
+    
+    return centroids, clusters
 
 
-clusters, centroids = kmeans(all_tupled_data, k) #THIS IS THE CORRECT OUTPUT (JUST CAN'T VISUALIZE)
-clusters1, centroids1 = kmeans(tupled_data1, k)
-clusters2, centroids2 = kmeans(tupled_data2, k)
-clusters3, centroids3 = kmeans(tupled_data3, k)
-clusters4, centroids4 = kmeans(tupled_data4, k)
-clusters5, centroids5 = kmeans(tupled_data5, k)
-clusters6, centroids6 = kmeans(tupled_data6, k)
-clusters7, centroids7 = kmeans(tupled_data7, k)
+#Testing-------------------------------------------------------------------------
+
+#Data prep
+numerical_features = numeric_features
+clustering_data = sampled_df[numerical_features].values
 
 
+#Visualization specifically for Target and Symptoms
 
-#Visualization
-colors = []
-for i in range(len(numeric_features)):
-    r = np.round(np.random.rand(), 1)
-    g = np.round(np.random.rand(), 1)
-    b = np.round(np.random.rand(), 1)
-    colors.append((r,g,b))
+#Dataset
+cluster_sample = sampled_df
 
+#Encoding Target and early onset sympstoms
+target_map = target_mapping
+early_onset_map = {'Yes': 1, 'No': 0}
+symptom_features = ['Insulin Levels', 'Age', 'BMI', 'Blood Pressure', 'Cholesterol Levels', 'Blood Glucose Levels']
 
-plt.xlim(0,90)
-plt.ylim(0,90)
+cluster_sample['Target_encoded'] = cluster_sample['Target'].map(target_map)
+cluster_sample['early_onset_symptoms_encoded'] = cluster_sample['Early Onset Symptoms'].map(early_onset_map)
 
-#For feature set 1
-for i, cluster in enumerate(clusters1):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+features = ['Target_encoded', 'early_onset_symptoms_encoded'] + symptom_features
+data = cluster_sample[features].values
 
-x_centroid, y_centroid = zip(*centroids1)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+centroids_s, clusters_s = k_means(data, 3)
 
-plt.title('K-means Clustering')
+# Plotting the results
+plt.figure(figsize=(8, 6))
+
+# Scatter plot of the data points, colored by clusters
+scatter = plt.scatter(cluster_sample['Target_encoded'], cluster_sample['early_onset_symptoms_encoded'], c=clusters_s, cmap='viridis', marker='o', alpha=0.6)
+
+# Plot the centroids in red with a larger 'X' marker
+plt.scatter(centroids_s[:, 0], centroids_s[:, 1], c='red', marker='X', s=200, label='Centroids')
+
+# Adding labels and title
+plt.title("K-Means Clustering with Target and Early Onset Symptoms")
+plt.xlabel('Target')
+plt.ylabel('Early Onset Symptoms')
 plt.legend()
-plt.show()
-
-#For feature set 2
-for i, cluster in enumerate(clusters2):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
-
-x_centroid, y_centroid = zip(*centroids2)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
-
-plt.title('K-means Clustering')
-plt.legend()
-plt.show()
-
-#For feature set 3
-for i, cluster in enumerate(clusters3):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
-
-x_centroid, y_centroid = zip(*centroids3)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
-
-plt.title('K-means Clustering')
-plt.legend()
+plt.colorbar(scatter, label='Cluster ID')
 plt.show()
 
 
-#For feature set 4
-for i, cluster in enumerate(clusters4):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
+#Visualization specifically for Target and Insulin Level
+# Plotting the results
+plt.figure(figsize=(8, 6))
 
-x_centroid, y_centroid = zip(*centroids4)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
+# Scatter plot of the data points, colored by clusters
+scatter = plt.scatter(cluster_sample['Target_encoded'], cluster_sample['Insulin Levels'], c=clusters_s, cmap='viridis', marker='o', alpha=0.6)
 
-plt.title('K-means Clustering')
+# Plot the centroids in red with a larger 'X' marker
+plt.scatter(centroids_s[:, 0], centroids_s[:, 1], c='red', marker='X', s=200, label='Centroids')
+
+# Adding labels and title
+plt.title("K-Means Clustering with Target and Insulin Levels")
+plt.xlabel('Target')
+plt.ylabel('Insulin Levels')
 plt.legend()
-plt.show()
-
-
-#For feature set 5
-for i, cluster in enumerate(clusters5):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
-
-x_centroid, y_centroid = zip(*centroids5)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
-
-plt.title('K-means Clustering')
-plt.legend()
+plt.colorbar(scatter, label='Cluster ID')
 plt.show()
 
 
 
-#For feature set 6
-for i, cluster in enumerate(clusters6):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
 
-x_centroid, y_centroid = zip(*centroids6)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
-
-plt.title('K-means Clustering')
-plt.legend()
-plt.show()
-
-
-#For feature set 7
-for i, cluster in enumerate(clusters7):
-    cluster_points = list(zip(*cluster))
-    plt.scatter(cluster_points[0], cluster_points[1], color=colors[i % len(colors)], label=f'Cluster {i}')
-
-x_centroid, y_centroid = zip(*centroids7)
-plt.scatter(x_centroid, y_centroid, color = 'black', marker = 'X', s = 200, label = 'Centroids')
-
-plt.title('K-means Clustering')
-plt.legend()
-plt.show()
 
 
 
 
 #Apriori Algorithm
 
-#Data to be used from Preprocessing(only numeric columns)
-sampled_data = sampled_df.select_dtypes(include = ['number']).dropna()
+#Data to be used from Preprocessing(only categorical features)
+transaction_data = sampled_df.select_dtypes(include = ['object']).dropna()
 
 # Convert DataFrame to a list of transactions
 def create_transactions(data):
-    return data.apply(lambda row: set(row.index[row == 1]), axis=1).tolist()
+    return data.apply(lambda row: set(row), axis=1).tolist()
 
-transactions = create_transactions(sampled_data)
+transactions = create_transactions(transaction_data)
 
-# Generate frequent itemsets
-def get_frequent_itemsets(transactions, min_support):
-    itemsets = {}
-    # Count occurrences of itemsets
+
+#Frequent Itemset Generation
+def generate_frequent_itemsets(transactions, min_support):
+    itemsets = defaultdict(int)
+
+    # Support count
     for transaction in transactions:
         for item in transaction:
-            if item in itemsets:
-                itemsets[item] += 1
-            else:
-                itemsets[item] = 1
+            itemsets[frozenset([item])] += 1
 
-    # Filter itemsets by minimum support
-    return {item: count for item, count in itemsets.items() if count >= min_support}
+    total_transactions = len(transactions)
+    frequent_itemsets = {
+        itemset: count / total_transactions
+        for itemset, count in itemsets.items()
+        if count / total_transactions >= min_support
+    }
 
-# Generate combinations of items
-def generate_combinations(itemsets, length):
-    return list(combinations(itemsets, length))
+    # Generate itemsets with higher k
+    k = 2
+    while True:
 
-# Apriori Algorithm
-def apriori(transactions, min_support):
-    single_itemsets = get_frequent_itemsets(transactions, min_support)
-    all_frequent_itemsets = dict(single_itemsets)
-    
-    length = 2
-    while single_itemsets:
-        candidate_itemsets = generate_combinations(single_itemsets.keys(), length)
-        itemsets_count = {}
+        #Generate candidate itemsets
+        candidates = defaultdict(int)
+        for itemset in list(frequent_itemsets.keys()):
+            for other_itemset in frequent_itemsets.keys():
+                if len(itemset.union(other_itemset)) == k:
+                    candidates[itemset.union(other_itemset)] += 1
 
-        for transaction in transactions:
-            for candidate in candidate_itemsets:
-                if set(candidate).issubset(transaction):
-                    if candidate in itemsets_count:
-                        itemsets_count[candidate] += 1
-                    else:
-                        itemsets_count[candidate] = 1
+        if not candidates:
+            break
 
-        # Filter itemsets by minimum support
-        single_itemsets = {itemset: count for itemset, count in itemsets_count.items() if count >= min_support}
-        all_frequent_itemsets.update(single_itemsets)
+        # Check support for new itemsets
+        candidate_supports = {
+            itemset: count / total_transactions
+            for itemset, count in candidates.items()
+            if count / total_transactions >= min_support
+        }
 
-        length += 1
+        # If no frequent itemsets were found for this k, break out of the loop
+        if not candidate_supports:
+            break
 
-    return all_frequent_itemsets
+        frequent_itemsets = candidate_supports
+        k += 1
 
-# Define minimum support
-min_support = 2  # This can be adjusted based on your dataset size
-frequent_itemsets = apriori(transactions, min_support)
+    return frequent_itemsets
 
-# Display frequent itemsets
-print("Frequent Itemsets:")
-for itemset, count in frequent_itemsets.items():
-    print(f"{itemset}: {count}")
-
-# Function to generate association rules
-def generate_rules(frequent_itemsets, min_confidence):
+def generate_association_rules(frequent_itemsets, min_confidence):
     rules = []
-    for itemset in frequent_itemsets:
-        for item in itemset:
-            antecedent = set(itemset) - {item}
-            if len(antecedent) > 0:
-                support = frequent_itemsets[itemset]
-                confidence = support / frequent_itemsets[frozenset(antecedent)]
-                if confidence >= min_confidence:
-                    rules.append((frozenset(antecedent), item, confidence))
+
+    for itemset, support in frequent_itemsets.items():
+        if len(itemset) > 1:
+            for prev_size in range(1, len(itemset)):
+                for prev in combinations(itemset, prev_size):
+                    prev = frozenset(prev)
+                    diff = itemset.difference(prev)
+
+                    # Compute confidence of the rule
+                    prev_support = frequent_itemsets.get(prev, 0)
+                    rule_confidence = support / prev_support
+
+                    if rule_confidence >= min_confidence:
+                        rules.append((prev, diff, rule_confidence))
+
     return rules
 
-# Define minimum confidence
-min_confidence = 0.5
-association_rules = generate_rules(frequent_itemsets, min_confidence)
+def apriori(transactions, min_support, min_confidence):
+    frequent_itemsets = generate_frequent_itemsets(transactions, min_support)
+    print("\nFrequent Itemsets:")
+    for itemset, support in frequent_itemsets.items():
+        print(f"{set(itemset)}: {support:.2f}")
 
-# Display association rules
-print("\nAssociation Rules:")
-for antecedent, consequent, confidence in association_rules:
-    print(f"{antecedent} -> {consequent} (Confidence: {confidence:.2f})")
+    association_rules = generate_association_rules(frequent_itemsets, min_confidence)
+    print("\nAssociation Rules:")
+    for rule in association_rules:
+        antecedent, consequent, confidence = rule
+        print(f"{set(antecedent)} => {set(consequent)}: {confidence:.2f}")
 
 
-
-#Accuracy, Precision, Recall, F-1 Score
-
-def calculate_metrics(y_true, y_pred):
-    TP = sum(1 for true, pred in zip(y_true, y_pred) if true == 1 and pred == 1)
-    TN = sum(1 for true, pred in zip(y_true, y_pred) if true == 0 and pred == 0)
-    FP = sum(1 for true, pred in zip(y_true, y_pred) if true == 0 and pred == 1)
-    FN = sum(1 for true, pred in zip(y_true, y_pred) if true == 1 and pred == 0)
-
-    # Calculate metrics
-    accuracy = (TP + TN) / len(y_true) if len(y_true) > 0 else 0
-    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
-    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
-    f1_score = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0
-
-    return accuracy, precision, recall, f1_score
+#Testing
+apriori(transactions, min_support=0.001, min_confidence=0.001)
 
 
 
-#Confusion Matrix, AUC and ROC
 
 
-def confusion_matrix(actual, predicted):
-    # Initialize counts
-    TP = TN = FP = FN = 0
-    
-    # Iterate through the actual and predicted lists
-    for a, p in zip(actual, predicted):
-        if a == 1 and p == 1:
-            TP += 1  # True Positive
-        elif a == 0 and p == 0:
-            TN += 1  # True Negative
-        elif a == 0 and p == 1:
-            FP += 1  # False Positive
-        elif a == 1 and p == 0:
-            FN += 1  # False Negative
 
-    # Create the confusion matrix
-    matrix = {
-        "True Positive": TP,
-        "True Negative": TN,
-        "False Positive": FP,
-        "False Negative": FN
-    }
-    
+
+
+#Confusion Matrix, Accuracy, Precision, Recall, F-1 Score-----------------------------------------------------------------------------
+
+def confusion_matrix(y_true, y_pred, num_classes):
+    matrix = np.zeros((num_classes, num_classes), dtype=int)
+    for true, pred in zip(y_true, y_pred):
+        matrix[true][pred] += 1
     return matrix
 
+def calc_accuracy(conf_matrix):
+    correct = np.trace(conf_matrix)  
+    total = np.sum(conf_matrix)
+    return correct / total
 
-def calculate_auc(y_true, y_scores):
-    # Combine true labels and scores
-    data = sorted(zip(y_true, y_scores), key=lambda x: x[1])
-    
-    # Unzip the sorted data
-    y_true_sorted, y_scores_sorted = zip(*data)
-    
-    # Calculate True Positive Rate (TPR) and False Positive Rate (FPR)
-    tp = 0
-    fp = 0
-    fn = sum(y_true)  # Total positives
-    tn = len(y_true) - fn  # Total negatives
-    
-    tpr = []
-    fpr = []
-    
-    for i in range(len(y_scores_sorted)):
-        if y_true_sorted[i] == 1:
-            tp += 1
-        else:
-            fp += 1
-        
-        # Calculate rates
-        tpr.append(tp / (tp + fn))
-        fpr.append(fp / (fp + tn))
-    
+def calc_precision(conf_matrix, num_classes):
+    precision = []
+    for cls in range(num_classes):
+        tp = conf_matrix[cls][cls]
+        fp = np.sum(conf_matrix[:, cls]) - tp
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0
+        precision.append(prec)
+    return precision
+
+def calc_recall(conf_matrix, num_classes):
+    recall = []
+    for cls in range(num_classes):
+        tp = conf_matrix[cls][cls]
+        fn = np.sum(conf_matrix[cls, :]) - tp
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0
+        recall.append(rec)
+    return recall
+
+def calc_f1_score(precision, recall):
+    f1_scores = []
+    for prec, rec in zip(precision, recall):
+        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0
+        f1_scores.append(f1)
+    return f1_scores
+
+def mean(metrics):
+    return np.mean(metrics)
+
+def display_metrics(conf_matrix, target_mapping):
+    num_classes = len(target_mapping)
+    precision = calc_precision(conf_matrix, num_classes)
+    recall = calc_recall(conf_matrix, num_classes)
+    f1_scores = calc_f1_score(precision, recall)
+
+    print("\nClass-wise Metrics:")
+    for cls, label in enumerate(target_mapping.keys()):
+        print(f"Class: {label}")
+        print(f"  Precision: {precision[cls]:.2f}")
+        print(f"  Recall: {recall[cls]:.2f}")
+        print(f"  F1-score: {f1_scores[cls]:.2f}")
+
+    mean_precision = mean(precision)
+    mean_recall = mean(recall)
+    mean_f1 = mean(f1_scores)
+
+    print("\nMacro-Average Metrics:")
+    print(f"  Precision: {mean_precision:.2f}")
+    print(f"  Recall: {mean_recall:.2f}")
+    print(f"  F1-score: {mean_f1:.2f}")
+
+def evaluate_predictions(y_true, y_pred, target_mapping):
+    num_classes = len(target_mapping)
+    conf_matrix = confusion_matrix(y_true, y_pred, num_classes)
+    accuracy = calc_accuracy(conf_matrix)
+
+    print("Confusion Matrix:")
+    print(conf_matrix)
+    print(f"\nAccuracy: {accuracy:.2f}")
+
+    display_metrics(conf_matrix, target_mapping)
+
+
+
+#Evaluating Models (if applicable)
+
+#Decision Tree Evaluation
+dt_conf_matrix = confusion_matrix(y_test, predictions, len(target_mapping))
+display_metrics(dt_conf_matrix, target_mapping)
+
+#K-Means Clustering Evaluation
+#NO NEED FOR CLUSTERING SINCE IT IS NOT A CLASSIFICATION PROBLEM
+#NO NEED FOR CONFUSION MATRIX BECAUSE ITS NOT PREDICTING ANY CLASS LABELS
+
+#Apriori Evaluation
+#NO NEED ALSO BECAUSE ITS AN ASSOCIATION BASED ALGORITHM NOT FOR CLASSIFICATION
+#NO NEED FOR CONFUSION MATRIX BECAUSE ITS NOT PREDICTING ANY CLASS LABELS
+
+
+
+#AUC and ROC-------------------------------------------------------------------------------------------------------------------------
+def calculate_roc_auc(y_true, y_pred_probs):
+    thresholds = np.linspace(0, 1, 100)  # Generate thresholds from 0 to 1
+    tpr = []  # True Positive Rate
+    fpr = []  # False Positive Rate
+
+    for threshold in thresholds:
+        # Convert probabilities to binary predictions at the threshold
+        y_pred = (y_pred_probs >= threshold).astype(int)
+
+        # Calculate TP, FP, FN, TN
+        TP = np.sum((y_true == 1) & (y_pred == 1))
+        FP = np.sum((y_true == 0) & (y_pred == 1))
+        FN = np.sum((y_true == 1) & (y_pred == 0))
+        TN = np.sum((y_true == 0) & (y_pred == 0))
+
+        # Calculate TPR and FPR
+        tpr.append(TP / (TP + FN) if (TP + FN) > 0 else 0)
+        fpr.append(FP / (FP + TN) if (FP + TN) > 0 else 0)
+
     # Calculate AUC using the trapezoidal rule
-    auc = 0.0
-    for i in range(1, len(fpr)):
-        auc += (fpr[i] - fpr[i-1]) * (tpr[i] + tpr[i-1]) / 2
+    auc = np.trapz(tpr, fpr)  # Integrate TPR vs. FPR
 
-    return auc
+    return tpr, fpr, auc
 
 
-def calculate_roc(y_true, y_scores):
-    # Combine true labels and scores
-    data = sorted(zip(y_true, y_scores), key=lambda x: x[1])
-    
-    # Unzip the sorted data
-    y_true_sorted, y_scores_sorted = zip(*data)
-    
-    # Initialize variables
-    tp = 0
-    fp = 0
-    fn = sum(y_true)  # Total positives
-    tn = len(y_true) - fn  # Total negatives
-    
-    tpr = [0]
-    fpr = [0]
-    
-    for i in range(len(y_scores_sorted)):
-        if y_true_sorted[i] == 1:
-            tp += 1
-        else:
-            fp += 1
-        
-        # Calculate rates
-        tpr.append(tp / (tp + fn))
-        fpr.append(fp / (fp + tn))
-    
-    return fpr, tpr
+#Visualization for AUC and ROC (if applicable)
 
+#Decision tree AUC and ROC
+# Predicting probabilities for all samples in x_test
+predictions_probabilities = predict_all(x_test, trained_tree, return_probabilities=True)
 
-#Need to visualize these
+# If you want the probabilities for a particular class (e.g., positive class with index 1)
+positive_class_index = 1 # 1 because target is type of diabetes which are all diabetes positive
+y_pred_probs = [prob.get(positive_class_index, 0) for prob in predictions_probabilities]
+tpr, fpr, auc = calculate_roc_auc(y_test, y_pred_probs)
+
+# Plot ROC Curve
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='blue', label=f'ROC Curve (AUC = {auc:.2f})')
+plt.plot([0, 1], [0, 1], color='gray', linestyle='--', label='Random Guess')
+
+plt.title('Receiver Operating Characteristic (ROC) Curve', fontsize=14)
+plt.xlabel('False Positive Rate (FPR)', fontsize=12)
+plt.ylabel('True Positive Rate (TPR)', fontsize=12)
+plt.legend(loc='lower right', fontsize=12)
+plt.grid(alpha=0.3)
+plt.show()
