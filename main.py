@@ -666,6 +666,12 @@ def evaluate_predictions(y_true, y_pred, target_mapping):
 dt_conf_matrix = confusion_matrix(y_test, predictions, len(target_mapping))
 display_metrics(dt_conf_matrix, target_mapping)
 
+
+y_true = np.array(["Prediabetic", "Prediabetic", "Prediabetic", "Type 3c Diabetes (Pancreatogenic Diabetes)"])  
+y_pred = np.array([predicted_c1, predicted_c2, predicted_c3, predicted_c4])
+
+evaluate_predictions(y_true, y_pred, target_mapping)
+
 #K-Means Clustering Evaluation
 #NO NEED FOR CLUSTERING SINCE IT IS NOT A CLASSIFICATION PROBLEM
 #NO NEED FOR CONFUSION MATRIX BECAUSE ITS NOT PREDICTING ANY CLASS LABELS
