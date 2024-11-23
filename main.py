@@ -656,4 +656,5 @@ def apriori(transactions, min_support, min_confidence):
 
 
 #Testing
+apriori(transactions, min_support=0.001, min_confidence=0.5)
 apriori(transactions, min_support=0.001, min_confidence=0.0005)
