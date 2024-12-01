@@ -453,6 +453,29 @@ print("Evaluation of Depth 5:")
 evaluate_predictions(y_test, prediction_all_5, target_mapping)
 
 
+#Visualize the evaluation metrics
+fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+fig.suptitle("Decision Tree Evaluation Metrics")
+
+#Depth 3
+axes[0].bar(diabetes_types, calc_precision(confusion_matrix(y_test, prediction_all_3, num_of_classes), num_of_classes), alpha=0.6, label='Precision')
+axes[0].bar(diabetes_types, calc_recall(confusion_matrix(y_test, prediction_all_3, num_of_classes), num_of_classes), alpha=0.6, label='Recall')
+axes[0].bar(diabetes_types, calc_f1_score(calc_precision(confusion_matrix(y_test, prediction_all_3, num_of_classes), num_of_classes), calc_recall(confusion_matrix(y_test, prediction_all_3, num_of_classes), num_of_classes),), alpha=0.6, label='F1 Score')
+axes[0].set_title("Depth 3")
+axes[0].set_xlabel("Diabetes Type")
+axes[0].set_ylabel("Metrics")
+axes[0].legend()
+
+#Depth 5
+axes[1].bar(diabetes_types, calc_precision(confusion_matrix(y_test, prediction_all_5, num_of_classes), num_of_classes), alpha=0.6, label='Precision')
+axes[1].bar(diabetes_types, calc_recall(confusion_matrix(y_test, prediction_all_5, num_of_classes), num_of_classes), alpha=0.6, label='Recall')
+axes[1].bar(diabetes_types, calc_f1_score(calc_precision(confusion_matrix(y_test, prediction_all_5, num_of_classes), num_of_classes), calc_recall(confusion_matrix(y_test, prediction_all_5, num_of_classes), num_of_classes),), alpha=0.6, label='F1 Score')
+axes[1].set_title("Depth 5")
+axes[1].set_xlabel("Diabetes Type")
+axes[1].set_ylabel("Metrics")
+axes[1].legend()
+
+plt.show()
 
 
 
