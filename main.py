@@ -148,6 +148,36 @@ numeric_features = df.select_dtypes(include = np.number).columns.tolist()
 print("\n")
 
 
+#Visualize the all features after preprocessing
+for feature in key_features:
+    plt.hist(sampled_df[feature])
+    plt.title(feature)
+    plt.xlabel("Data")
+    plt.ylabel("Values")
+    plt.show()
+
+for feature in bonus_features:
+    plt.hist(sampled_df[feature])
+    plt.title(feature)
+    plt.xlabel("Data")
+    plt.ylabel("Values")
+    plt.show()
+
+for feature in numeric_features:
+    plt.hist(sampled_df[feature])
+    plt.title(feature)
+    plt.xlabel("Data")
+    plt.ylabel("Values")
+    plt.show()
+
+
+#Visualize all the statistics of the dataset after preprocessing on a graph
+sampled_df.describe().plot(kind = 'bar', figsize = (15, 10), grid = True, title = "Statistics of the Dataset")
+plt.show()
+
+
+
+
 
 
 
